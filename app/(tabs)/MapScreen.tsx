@@ -51,7 +51,7 @@ const MapScreen = () => {
     null
   );
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoMarker | null>(null);
-  const [zoomLevel, setZoomLevel] = useState<number>(12);
+  const [zoomLevel, setZoomLevel] = useState<number>(14);
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -69,7 +69,7 @@ const MapScreen = () => {
     })();
   }, []);
 
-  // Fade-in / fade-out popup animation
+  // Fade animation for popup
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: selectedPhoto ? 1 : 0,
@@ -79,7 +79,6 @@ const MapScreen = () => {
     }).start();
   }, [selectedPhoto]);
 
-  // Handle zoom updates for dynamic marker sizing
   const onRegionDidChange = async () => {
     const zoom = await cameraRef.current?.getZoom();
     if (zoom) setZoomLevel(zoom);
@@ -97,10 +96,12 @@ const MapScreen = () => {
     <View style={styles.container}>
       <MapboxGL.MapView
         style={styles.map}
-        styleURL={MapboxGL.StyleURL.Outdoors}
+        styleURL={MapboxGL.StyleURL.MapboxStreets}
         onRegionDidChange={onRegionDidChange}
         logoEnabled={false}
         compassEnabled={true}
+        pitchEnabled={true}
+        rotateEnabled={true}
       >
         <MapboxGL.Camera
           ref={cameraRef}
@@ -108,15 +109,30 @@ const MapScreen = () => {
           centerCoordinate={userLocation}
           animationMode="flyTo"
           animationDuration={1000}
+          pitch={60} // tilt map for 3D perspective
         />
 
-        {/* User’s location */}
+        {/* User location */}
         <MapboxGL.UserLocation visible={true} showsUserHeadingIndicator={true} />
+
+        {/* 3D Buildings Layer */}
+        <MapboxGL.VectorSource id="composite" url="mapbox://mapbox.mapbox-streets-v8">
+          <MapboxGL.FillExtrusionLayer
+            id="3d-buildings"
+            sourceLayerID="building"
+            style={{
+              fillExtrusionColor: "#aaa",
+              fillExtrusionHeight: ["get", "height"],
+              fillExtrusionBase: ["get", "min_height"],
+              fillExtrusionOpacity: 0.8,
+            }}
+            minZoomLevel={15} // starts extruding at closer zoom
+          />
+        </MapboxGL.VectorSource>
 
         {/* Dynamic photo markers */}
         {photoData.map((photo) => {
           const scale = Math.min(Math.max(zoomLevel / 10, 0.8), 1.8);
-
           return (
             <MapboxGL.PointAnnotation
               key={photo.id}
@@ -124,17 +140,19 @@ const MapScreen = () => {
               coordinate={photo.coordinates}
               onSelected={() => setSelectedPhoto(photo)}
             >
-              <View
-                style={[styles.markerContainer, { transform: [{ scale }] }]}
-              >
-                <Image source={photo.image} style={styles.markerImage} />
+              <View style={{ alignItems: "center", justifyContent: "center" }}>
+                <View
+                  style={[styles.markerContainer, { transform: [{ scale }] }]}
+                >
+                  <Image source={photo.image} style={styles.markerImage} />
+                </View>
               </View>
             </MapboxGL.PointAnnotation>
           );
         })}
       </MapboxGL.MapView>
 
-      {/* Popup overlay (animated) */}
+      {/* Popup overlay */}
       {selectedPhoto && (
         <Animated.View
           style={[
