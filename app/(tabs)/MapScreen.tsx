@@ -1,295 +1,231 @@
 import MapboxGL from "@rnmapbox/maps";
-import React, { useEffect, useState } from "react";
+import * as Location from "expo-location";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  Dimensions,
+  Easing,
   Image,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 MapboxGL.setAccessToken(
   "pk.eyJ1Ijoic2FtaWphZmZyaSIsImEiOiJjbWg4ajFudHcxNjBkMmtvYXcyNG56dXQyIn0.SqesrHxUhL7tv2Jco_jXUw"
 );
 
-export default function MapScreen() {
-  const [is3D, setIs3D] = useState(true);
-  const [mapStyle, setMapStyle] = useState(MapboxGL.StyleURL.Outdoors); // day style
-  const [selectedSpot, setSelectedSpot] = useState(null);
-  const [fadeAnim] = useState(new Animated.Value(0));
+const { width } = Dimensions.get("window");
 
-  // Hard-coded spot list from the article (partial sample)
-  const photoSpots = {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [-123.120975, 49.284342] }, // Coal Harbour approx
-        properties: {
-          title: "Coal Harbour Waterfront",
-          intensity: 10,
-          photo: "https://upload.wikimedia.org/wikipedia/commons/…/Canada_Place_panorama.jpg"
-        }
-      },
-      {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [-123.139999, 49.299999] }, // Stanley Park approx
-        properties: {
-          title: "Stanley Park Seawall / Forests",
-          intensity: 15,
-          photo: "https://upload.wikimedia.org/wikipedia/commons/…/Stanley_Park_Seawall.jpg"
-        }
-      },
-      {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [-123.108978, 49.284416] }, // Gastown Steam Clock approx
-        properties: {
-          title: "Gastown Steam Clock & Cobblestone Streets",
-          intensity: 8,
-          photo: "https://upload.wikimedia.org/wikipedia/commons/…/Gastown-engagement-photography.jpg"
-        }
-      },
-      {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [-123.140000, 49.263000] }, // Kitsilano area approx
-        properties: {
-          title: "Kitsilano Beach & Park",
-          intensity: 12,
-          photo: "https://upload.wikimedia.org/wikipedia/commons/…/jericho-beach-wedding-vancouver.jpg"
-        }
-      },
-      {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [-123.120000, 49.262000] }, // Granville Island / False Creek approx
-        properties: {
-          title: "Granville Island & False Creek Boardwalk",
-          intensity: 9,
-          photo: "https://upload.wikimedia.org/wikipedia/commons/…/Granville_Island_from_Granville_Bridge.jpg"
-        }
-      }
-      // Add more as needed…
-    ]
-  };
+interface PhotoMarker {
+  id: string;
+  title: string;
+  coordinates: [number, number];
+  image: any;
+}
 
-  const heatmapStyle = {
-    heatmapColor: [
-      "interpolate",
-      ["linear"],
-      ["heatmap-density"],
-      0, "rgba(255,255,255,0)",      // transparent white
-      0.2, "rgba(173,216,230,0.6)", // light blue
-      0.4, "rgba(135,206,235,0.6)", // sky blue
-      0.6, "rgba(60,179,113,0.7)",  // medium sea green
-      0.8, "rgba(255,165,0,0.8)",   // orange
-      1, "rgba(255,0,0,1)"          // red
-    ],
-    heatmapWeight: ["interpolate", ["linear"], ["get", "intensity"], 0, 0, 15, 1],
-    heatmapIntensity: ["interpolate", ["linear"], ["zoom"], 10, 1, 15, 3],
-    heatmapRadius: ["interpolate", ["linear"], ["zoom"], 10, 15, 15, 40],
-    heatmapOpacity: 0.75
-  };
+const photoData: PhotoMarker[] = [
+  {
+    id: "1",
+    title: "Sunset by the Lake",
+    coordinates: [-123.116226, 49.246292],
+    image: require("/Users/samijaffri/PersonalPhotographyApp/assets/images/sunset.jpg"),
+  },
+  {
+    id: "2",
+    title: "Mountain View",
+    coordinates: [-123.1207, 49.2827],
+    image: require("/Users/samijaffri/PersonalPhotographyApp/assets/images/mountain.jpg"),
+  },
+  {
+    id: "3",
+    title: "City Lights",
+    coordinates: [-123.1, 49.27],
+    image: require("/Users/samijaffri/PersonalPhotographyApp/assets/images/city.jpg"),
+  },
+];
 
-  const markerStyle = {
-    iconImage: "camera-15",
-    iconSize: 1.2,
-    textField: ["get", "title"],
-    textOffset: [0, 1.2],
-    textSize: 12,
-    textColor: "#fff",
-    textHaloColor: "#000",
-    textHaloWidth: 1,
-  };
+const MapScreen = () => {
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(
+    null
+  );
+  const [selectedPhoto, setSelectedPhoto] = useState<PhotoMarker | null>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(12);
+  const cameraRef = useRef<MapboxGL.Camera>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const toggle3D = () => setIs3D(prev => !prev);
-  const toggleDayNight = () => {
-    setMapStyle(prev =>
-      prev === MapboxGL.StyleURL.Outdoors
-        ? MapboxGL.StyleURL.Dark
-        : MapboxGL.StyleURL.Outdoors
-    );
-  };
-
-  const handleMarkerPress = e => {
-    const feature = e.features && e.features[0];
-    if (feature) {
-      setSelectedSpot(feature.properties);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-  };
-
-  const closePopup = () => {
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => setSelectedSpot(null));
-  };
-
+  // Request and set user location
   useEffect(() => {
     (async () => {
-      await MapboxGL.requestAndroidLocationPermissions?.();
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        console.warn("Permission to access location was denied");
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({});
+      setUserLocation([location.coords.longitude, location.coords.latitude]);
     })();
   }, []);
 
+  // Fade-in / fade-out popup animation
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: selectedPhoto ? 1 : 0,
+      duration: 250,
+      easing: Easing.ease,
+      useNativeDriver: true,
+    }).start();
+  }, [selectedPhoto]);
+
+  // Handle zoom updates for dynamic marker sizing
+  const onRegionDidChange = async () => {
+    const zoom = await cameraRef.current?.getZoom();
+    if (zoom) setZoomLevel(zoom);
+  };
+
+  if (!userLocation) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Loading map...</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.page}>
+    <View style={styles.container}>
       <MapboxGL.MapView
         style={styles.map}
-        styleURL={mapStyle}
-        onPress={closePopup}
+        styleURL={MapboxGL.StyleURL.Outdoors}
+        onRegionDidChange={onRegionDidChange}
+        logoEnabled={false}
+        compassEnabled={true}
       >
         <MapboxGL.Camera
-          zoomLevel={13}
-          centerCoordinate={[-123.1207, 49.2827]}
-          pitch={is3D ? 60 : 0}
-          heading={is3D ? 20 : 0}
+          ref={cameraRef}
+          zoomLevel={zoomLevel}
+          centerCoordinate={userLocation}
+          animationMode="flyTo"
+          animationDuration={1000}
         />
 
-        <MapboxGL.UserLocation visible={true} />
+        {/* User’s location */}
+        <MapboxGL.UserLocation visible={true} showsUserHeadingIndicator={true} />
 
-        {is3D && (
-          <MapboxGL.RasterDemSource
-            id="mapbox-dem"
-            url="mapbox://mapbox.mapbox-terrain-dem-v1"
-            tileSize={512}
-            maxzoom={14}
-          >
-            <MapboxGL.Terrain sourceID="mapbox-dem" exaggeration={1.3} />
-          </MapboxGL.RasterDemSource>
-        )}
+        {/* Dynamic photo markers */}
+        {photoData.map((photo) => {
+          const scale = Math.min(Math.max(zoomLevel / 10, 0.8), 1.8);
 
-        {is3D && (
-          <MapboxGL.FillExtrusionLayer
-            id="3d-buildings"
-            sourceID="composite"
-            sourceLayerID="building"
-            style={{
-              fillExtrusionColor: "#aaa",
-              fillExtrusionHeight: [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                15,
-                0,
-                15.05,
-                ["get", "height"],
-              ],
-              fillExtrusionBase: [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                15,
-                0,
-                15.05,
-                ["get", "min_height"],
-              ],
-              fillExtrusionOpacity: 0.9,
-            }}
-          />
-        )}
-
-        <MapboxGL.ShapeSource
-          id="photoSpots"
-          shape={photoSpots}
-          onPress={handleMarkerPress}
-        >
-          <MapboxGL.HeatmapLayer id="photoHeatmap" style={heatmapStyle} />
-          <MapboxGL.SymbolLayer id="photoSpotsLayer" style={markerStyle} />
-        </MapboxGL.ShapeSource>
+          return (
+            <MapboxGL.PointAnnotation
+              key={photo.id}
+              id={photo.id}
+              coordinate={photo.coordinates}
+              onSelected={() => setSelectedPhoto(photo)}
+            >
+              <View
+                style={[styles.markerContainer, { transform: [{ scale }] }]}
+              >
+                <Image source={photo.image} style={styles.markerImage} />
+              </View>
+            </MapboxGL.PointAnnotation>
+          );
+        })}
       </MapboxGL.MapView>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity style={styles.button} onPress={toggle3D}>
-          <Text style={styles.buttonText}>{is3D ? "2D View" : "3D View"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, { bottom: 100 }]} onPress={toggleDayNight}>
-          <Text style={styles.buttonText}>
-            {mapStyle === MapboxGL.StyleURL.Outdoors ? "Night Mode" : "Day Mode"}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {selectedSpot && (
+      {/* Popup overlay (animated) */}
+      {selectedPhoto && (
         <Animated.View
           style={[
             styles.popupContainer,
-            { opacity: fadeAnim, transform: [{ scale: fadeAnim }] },
+            {
+              opacity: fadeAnim,
+              transform: [
+                {
+                  scale: fadeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.9, 1],
+                  }),
+                },
+              ],
+            },
           ]}
         >
-          <Image source={{ uri: selectedSpot.photo }} style={styles.image} />
-          <View style={styles.popupTextContainer}>
-            <Text style={styles.popupTitle}>{selectedSpot.title}</Text>
-            <TouchableOpacity style={styles.closeButton} onPress={closePopup}>
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
+          <Image source={selectedPhoto.image} style={styles.popupImage} />
+          <Text style={styles.popupTitle}>{selectedPhoto.title}</Text>
+          <TouchableOpacity onPress={() => setSelectedPhoto(null)}>
+            <Text style={styles.popupClose}>Close</Text>
+          </TouchableOpacity>
         </Animated.View>
       )}
     </View>
   );
-}
+};
+
+export default MapScreen;
 
 const styles = StyleSheet.create({
-  page: { flex: 1 },
+  container: { flex: 1 },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fafafa",
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#555",
+  },
   map: { flex: 1 },
-  buttonContainer: {
-    position: "absolute",
-    bottom: 40,
-    right: 20,
-    alignItems: "flex-end",
+  markerContainer: {
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    overflow: "hidden",
+    borderWidth: 2.5,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  button: {
-    backgroundColor: "#111",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    opacity: 0.85,
-    marginBottom: 12,
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "600",
+  markerImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
   popupContainer: {
     position: "absolute",
-    bottom: 110,
-    left: 20,
-    right: 20,
+    bottom: 60,
+    left: width * 0.1,
+    width: width * 0.8,
     backgroundColor: "#fff",
-    borderRadius: 16,
-    overflow: "hidden",
+    borderRadius: 18,
     shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 6,
+    alignItems: "center",
+    paddingVertical: 10,
   },
-  image: {
-    width: "100%",
+  popupImage: {
+    width: "95%",
     height: 160,
-  },
-  popupTextContainer: {
-    padding: 12,
+    borderRadius: 12,
+    resizeMode: "cover",
   },
   popupTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-  },
-  closeButton: {
     marginTop: 10,
-    backgroundColor: "#111",
-    alignSelf: "flex-start",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  closeButtonText: {
-    color: "#fff",
+    fontSize: 17,
     fontWeight: "600",
+    color: "#222",
+  },
+  popupClose: {
+    marginTop: 8,
+    fontSize: 15,
+    color: "#007AFF",
+    fontWeight: "500",
   },
 });
